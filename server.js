@@ -165,7 +165,23 @@ app.delete("/appointments/:id", async (req, res) => {
   }
 });
 
+// ✅ ✅ RUTA TEMPORAL PARA CREAR ARIELA
+app.get("/create-ariela", async (req, res) => {
+  try {
+    const hashed = await bcrypt.hash("123456", 10);
 
+    await pool.query(
+      `INSERT INTO users (name, email, password, role)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (email) DO NOTHING`,
+      ["Ariela", "ariela@sublime.com", hashed, "employee"]
+    );
+
+    res.json({ ok: true, msg: "Ariela creada ✅" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.listen(PORT, () =>
   console.log(`✅ API lista en puerto ${PORT}`)
