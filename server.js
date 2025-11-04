@@ -181,18 +181,7 @@ app.get("/create-ariela", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-app.get("/convert-date-column", async (req, res) => {
-  try {
-    await pool.query(`
-      ALTER TABLE appointments
-      ALTER COLUMN date TYPE TEXT;
-    `);
 
-    res.json({ ok: true, msg: "✅ date convertido a TEXT" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 // ✅ Start server
 app.listen(PORT, () =>
   console.log(`✅ API funcionando en puerto ${PORT}`)
