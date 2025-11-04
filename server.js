@@ -1,15 +1,14 @@
-// ✅ server.js
 const express = require("express");
 const cors = require("cors");
 const { Pool } = require("pg");
-const bcrypt = require("bcryptjs");
+const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
-
 require("dotenv").config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// ✅ CORS
 app.use(
   cors({
     origin: "*",
@@ -17,12 +16,12 @@ app.use(
 );
 app.use(express.json());
 
-// ✅ Conexión PostgreSQL
+// ✅ DB
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
-// ✅ Crear tablas si no existen
+// ✅ Asegurar tablas
 const ensureTables = async () => {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -31,7 +30,7 @@ const ensureTables = async () => {
       email TEXT UNIQUE,
       password TEXT,
       role TEXT
-    );
+    )
   `);
 
   await pool.query(`
@@ -40,92 +39,87 @@ const ensureTables = async () => {
       client TEXT,
       phone TEXT,
       service TEXT,
-      date DATE,
+      date TEXT,
       time TEXT,
       employee TEXT,
       notes TEXT,
       price REAL
-    );
+    )
   `);
 };
-ensureTables();
+
+ensureTables().catch(console.error);
+
+
+// ✅ AUTH MIDDLEWARE
+const auth = (roles = []) => {
+  return (req, res, next) => {
+    const token = req.headers.authorization;
+    if (!token) return res.status(401).json({ error: "No token" });
+
+    try {
+      const data = jwt.verify(token.replace("Bearer ", ""), process.env.JWT_SECRET);
+      if (!roles.length) return next();
+      if (!roles.includes(data.role)) return res.status(403).json({ error: "No autorizado" });
+      next();
+    } catch {
+      return res.status(401).json({ error: "Token inválido" });
+    }
+  };
+};
+
 
 // ✅ LOGIN
 app.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
+    const q = await pool.query("SELECT * FROM users WHERE email=$1", [email]);
+    if (!q.rows.length) return res.status(400).json({ error: "Usuario no existe" });
 
-    const result = await pool.query(
-      "SELECT * FROM users WHERE email = $1 LIMIT 1",
-      [email]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(400).json({ error: "Usuario no existe" });
-    }
-
-    const user = result.rows[0];
-
+    const user = q.rows[0];
     const valid = await bcrypt.compare(password, user.password);
-    if (!valid) {
-      return res.status(400).json({ error: "Contraseña incorrecta" });
-    }
+    if (!valid) return res.status(400).json({ error: "Contraseña incorrecta" });
 
     const token = jwt.sign(
-      { id: user.id, role: user.role },
-      process.env.JWT_SECRET || "supersecret",
+      {
+        id: user.id,
+        role: user.role,
+        email: user.email,
+      },
+      process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
-    res.json({
-      token,
-      role: user.role,
-      name: user.name,
-    });
+    res.json({ token, role: user.role });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ✅ GET citas
+
+// ✅ GET Citas
 app.get("/appointments", async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      "SELECT * FROM appointments ORDER BY date DESC, time ASC"
-    );
-
-    const mapped = rows.map((r) => ({
-  ...r,
-  date: r.date
-    ? new Date(
-        r.date.getTime() + r.date.getTimezoneOffset() * 60000
-      )
-        .toISOString()
-        .slice(0, 10)
-    : null,
-}));
-
-    res.json(mapped);
+    const { rows } = await pool.query("SELECT * FROM appointments ORDER BY date ASC, time ASC");
+    res.json(rows); // ✅ fecha se devuelve tal cual sin modificar
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ✅ POST crear cita
+
+// ✅ POST Agregar cita
 app.post("/appointments", async (req, res) => {
   try {
-    const { client, phone, service, date, time, employee, notes, price } =
-      req.body;
+    const { client, phone, service, date, time, employee, notes, price } = req.body;
 
+    // ✅ Duplicado
     const dup = await pool.query(
       "SELECT id FROM appointments WHERE date=$1 AND time=$2 AND employee=$3 LIMIT 1",
       [date, time, employee]
     );
-
     if (dup.rows.length) {
-      return res
-        .status(400)
-        .json({ error: "Ya existe una cita para ese empleado a esa hora." });
+      return res.status(400).json({ error: "Ya existe una cita para ese empleado a esa hora." });
     }
 
     const result = await pool.query(
@@ -141,12 +135,12 @@ app.post("/appointments", async (req, res) => {
   }
 });
 
-// ✅ PUT editar
+
+// ✅ PUT Editar cita
 app.put("/appointments/:id", async (req, res) => {
   try {
     const id = req.params.id;
-    const { client, phone, service, date, time, employee, notes, price } =
-      req.body;
+    const { client, phone, service, date, time, employee, notes, price } = req.body;
 
     await pool.query(
       `UPDATE appointments
@@ -161,10 +155,12 @@ app.put("/appointments/:id", async (req, res) => {
   }
 });
 
-// ✅ DELETE eliminar
+
+// ✅ DELETE Eliminar cita
 app.delete("/appointments/:id", async (req, res) => {
   try {
-    await pool.query("DELETE FROM appointments WHERE id=$1", [req.params.id]);
+    const id = req.params.id;
+    await pool.query("DELETE FROM appointments WHERE id=$1", [id]);
     res.json({ deleted: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -172,7 +168,26 @@ app.delete("/appointments/:id", async (req, res) => {
 });
 
 
+// ✅ RUTA TEMPORAL PARA CREAR ARIELA (bórrala después)
+app.get("/create-ariela", async (req, res) => {
+  try {
+    const hashed = await bcrypt.hash("123456", 10);
 
+    await pool.query(
+      `INSERT INTO users (name, email, password, role)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (email) DO NOTHING`,
+      ["Ariela", "ariela@sublime.com", hashed, "employee"]
+    );
+
+    res.json({ ok: true, msg: "Ariela creada ✅" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ✅ Start
 app.listen(PORT, () =>
-  console.log(`✅ API lista en puerto ${PORT}`)
+  console.log(`✅ API funcionando en puerto ${PORT}`)
 );
