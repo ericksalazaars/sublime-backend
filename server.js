@@ -95,9 +95,15 @@ app.get("/appointments", async (req, res) => {
     );
 
     const mapped = rows.map((r) => ({
-      ...r,
-      date: r.date ? r.date.toLocaleDateString("en-CA") : null,
-    }));
+  ...r,
+  date: r.date
+    ? new Date(
+        r.date.getTime() + r.date.getTimezoneOffset() * 60000
+      )
+        .toISOString()
+        .slice(0, 10)
+    : null,
+}));
 
     res.json(mapped);
   } catch (err) {
