@@ -1,28 +1,39 @@
-// backend/server.js
+// ✅ server.js
 const express = require("express");
 const cors = require("cors");
 const { Pool } = require("pg");
+const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
+
+require("dotenv").config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Permite tu frontend (ajustaremos esto luego con tu dominio de Netlify)
 app.use(
   cors({
-    origin: "*", // En producción, cámbialo por tu dominio de frontend
+    origin: "*",
   })
 );
 app.use(express.json());
 
-// Conexión a PostgreSQL (Railway te dará DATABASE_URL)
+// ✅ Conexión PostgreSQL
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  // En Railway normalmente no hace falta SSL, si usas otros proveedores podrías necesitar:
-  // ssl: { rejectUnauthorized: false }
 });
 
-// Crear tabla si no existe
-const ensureTable = async () => {
+// ✅ Crear tablas si no existen
+const ensureTables = async () => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      name TEXT,
+      email TEXT UNIQUE,
+      password TEXT,
+      role TEXT
+    );
+  `);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS appointments (
       id SERIAL PRIMARY KEY,
@@ -34,38 +45,81 @@ const ensureTable = async () => {
       employee TEXT,
       notes TEXT,
       price REAL
-    )
+    );
   `);
 };
-ensureTable().catch(console.error);
+ensureTables();
 
-// GET todas
+// ✅ LOGIN
+app.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    const result = await pool.query(
+      "SELECT * FROM users WHERE email = $1 LIMIT 1",
+      [email]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(400).json({ error: "Usuario no existe" });
+    }
+
+    const user = result.rows[0];
+
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) {
+      return res.status(400).json({ error: "Contraseña incorrecta" });
+    }
+
+    const token = jwt.sign(
+      { id: user.id, role: user.role },
+      process.env.JWT_SECRET || "supersecret",
+      { expiresIn: "7d" }
+    );
+
+    res.json({
+      token,
+      role: user.role,
+      name: user.name,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ✅ GET citas
 app.get("/appointments", async (req, res) => {
   try {
-    const { rows } = await pool.query("SELECT * FROM appointments ORDER BY date DESC, time ASC");
-    // Convertimos date a YYYY-MM-DD para el frontend
-    const mapped = rows.map(r => ({
+    const { rows } = await pool.query(
+      "SELECT * FROM appointments ORDER BY date DESC, time ASC"
+    );
+
+    const mapped = rows.map((r) => ({
       ...r,
       date: r.date ? r.date.toISOString().slice(0, 10) : null,
     }));
+
     res.json(mapped);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// POST crear (con validación de duplicados: fecha + hora + empleado)
+// ✅ POST crear cita
 app.post("/appointments", async (req, res) => {
   try {
-    const { client, phone, service, date, time, employee, notes, price } = req.body;
+    const { client, phone, service, date, time, employee, notes, price } =
+      req.body;
 
-    // Validar duplicado
     const dup = await pool.query(
-      "SELECT id FROM appointments WHERE date = $1 AND time = $2 AND employee = $3 LIMIT 1",
+      "SELECT id FROM appointments WHERE date=$1 AND time=$2 AND employee=$3 LIMIT 1",
       [date, time, employee]
     );
+
     if (dup.rows.length) {
-      return res.status(400).json({ error: "Ya existe una cita para ese empleado a esa hora." });
+      return res
+        .status(400)
+        .json({ error: "Ya existe una cita para ese empleado a esa hora." });
     }
 
     const result = await pool.query(
@@ -74,17 +128,19 @@ app.post("/appointments", async (req, res) => {
        RETURNING id`,
       [client, phone, service, date, time, employee, notes, price ?? null]
     );
+
     res.json({ id: result.rows[0].id });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// PUT editar
+// ✅ PUT editar
 app.put("/appointments/:id", async (req, res) => {
   try {
     const id = req.params.id;
-    const { client, phone, service, date, time, employee, notes, price } = req.body;
+    const { client, phone, service, date, time, employee, notes, price } =
+      req.body;
 
     await pool.query(
       `UPDATE appointments
@@ -99,15 +155,35 @@ app.put("/appointments/:id", async (req, res) => {
   }
 });
 
-// DELETE eliminar
+// ✅ DELETE eliminar
 app.delete("/appointments/:id", async (req, res) => {
   try {
-    const id = req.params.id;
-    await pool.query("DELETE FROM appointments WHERE id=$1", [id]);
+    await pool.query("DELETE FROM appointments WHERE id=$1", [req.params.id]);
     res.json({ deleted: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.listen(PORT, () => console.log(`API lista en puerto ${PORT}`));
+// ✅ ✅ RUTA TEMPORAL PARA CREAR ADMIN
+// 👉 Luego se borra
+app.get("/create-admin", async (req, res) => {
+  try {
+    const hashed = await bcrypt.hash("123456", 10);
+
+    await pool.query(
+      `INSERT INTO users (name, email, password, role)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (email) DO NOTHING`,
+      ["Norys", "admin@sublime.com", hashed, "admin"]
+    );
+
+    res.json({ ok: true, msg: "Admin creado ✅" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.listen(PORT, () =>
+  console.log(`✅ API lista en puerto ${PORT}`)
+);
