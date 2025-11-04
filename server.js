@@ -165,24 +165,7 @@ app.delete("/appointments/:id", async (req, res) => {
   }
 });
 
-// ✅ ✅ RUTA TEMPORAL PARA CREAR ADMIN
-// 👉 Luego se borra
-app.get("/create-admin", async (req, res) => {
-  try {
-    const hashed = await bcrypt.hash("123456", 10);
 
-    await pool.query(
-      `INSERT INTO users (name, email, password, role)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (email) DO NOTHING`,
-      ["Norys", "admin@sublime.com", hashed, "admin"]
-    );
-
-    res.json({ ok: true, msg: "Admin creado ✅" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 app.listen(PORT, () =>
   console.log(`✅ API lista en puerto ${PORT}`)
