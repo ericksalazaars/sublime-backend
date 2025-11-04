@@ -96,7 +96,7 @@ app.get("/appointments", async (req, res) => {
 
     const mapped = rows.map((r) => ({
       ...r,
-      date: r.date ? r.date.toISOString().slice(0, 10) : null,
+      date: r.date ? r.date.toLocaleDateString("en-CA") : null,
     }));
 
     res.json(mapped);
